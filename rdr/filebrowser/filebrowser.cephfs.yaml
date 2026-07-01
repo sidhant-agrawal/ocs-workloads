@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: filebrowser
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: filebrowser
+  namespace: filebrowser
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: filebrowser
+  namespace: filebrowser
+  labels:
+    app: filebrowser
+    test: "true"
+spec:
+  serviceName: filebrowser
+  replicas: 3
+  selector:
+    matchLabels:
+      app: filebrowser
+      test: "true"
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Delete
+    whenScaled: Delete
+  template:
+    metadata:
+      labels:
+        app: filebrowser
+        test: "true"
+    spec:
+      serviceAccountName: filebrowser
+      containers:
+      - name: filebrowser
+        image: filebrowser/filebrowser:latest
+        imagePullPolicy: Always
+        args:
+        - "--root"
+        - "/srv"
+        - "--database"
+        - "/srv/filebrowser.db"
+        - "--address"
+        - "0.0.0.0"
+        - "--port"
+        - "8080"
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: data
+          mountPath: /srv
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+      volumes:
+      - name: config
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteMany
+      storageClassName: ocs-storagecluster-cephfs
+      resources:
+        requests:
+          storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: filebrowser
+  namespace: filebrowser
+spec:
+  selector:
+    app: filebrowser
+    test: "true"
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: filebrowser
+  namespace: filebrowser
+spec:
+  to:
+    kind: Service
+    name: filebrowser
+  port:
+    targetPort: http
+  tls:
+    termination: edge
